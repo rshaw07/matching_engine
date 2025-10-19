@@ -1,4 +1,6 @@
 #include "matching_engine.h"
+#include "webSocket.h"
+#include<iostream>  
 #include <algorithm>
 #include <deque>
 #include <map>
@@ -21,6 +23,19 @@ void matching_engine::recordTrades(const Order &buyOrder, const Order &sellOrder
     newTrade.timestamp = to_string(time(nullptr));
     // Store or process the trade as needed
     tradeHistory[buyOrder.symbol].push_back(newTrade);
+    // Broadcast trade update via WebSocket
+    Json::Value tradeJson;
+    tradeJson["trade_id"] = newTrade.tradeId;
+    tradeJson["maker_order_id"] = newTrade.makerOrderId;
+    tradeJson["taker_order_id"] = newTrade.takerOrderId;
+    tradeJson["aggressor"] = newTrade.aggressor;
+    tradeJson["symbol"] = newTrade.symbol;
+    tradeJson["price"] = newTrade.price;
+    tradeJson["quantity"] = newTrade.quantity;
+    tradeJson["timestamp"] = newTrade.timestamp;
+    Json::StreamWriterBuilder writer;
+    string jsonString = Json::writeString(writer, tradeJson);
+    webSocket::broadcastTradeUpdate(jsonString, buyOrder.symbol);
 
 }
 
