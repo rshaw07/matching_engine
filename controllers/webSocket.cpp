@@ -3,14 +3,22 @@
 void webSocket::handleNewConnection(const HttpRequestPtr &req,
                                        const WebSocketConnectionPtr &conn) {
     auto path = req->path();
+    auto symbol = req->getParameter("symbol");
     if (path == "/ws/marketfeed") {
-        marketClients.insert(conn);
+        if(!symbol.empty()){
+            symbolMarketClients[symbol].insert(conn);
+            conn->setContext(make_shared<string>(symbol));
+        }
+        else{
+            marketClients.insert(conn);
+        }
     } else if (path == "/ws/tradefeed") {
-        auto symbol = req->getParameter("symbol");
-        tradeLogs.insert(conn);
         if(!symbol.empty()){
             symbolTradeLogs[symbol].insert(conn);
             conn->setContext(make_shared<string>(symbol));
+        }
+        else{
+            tradeLogs.insert(conn);
         }
     }
 }
@@ -38,21 +46,36 @@ void webSocket::handleNewMessage(const WebSocketConnectionPtr &conn,
     }
 }
 
-void webSocket::broadcastMarketUpdate(const string &jsonMsg) {
+void webSocket::broadcastMarketUpdate(const string &jsonMsg, const string &symbol) {
     for (auto &client : marketClients) {
         if (client && client->connected()) {
             client->send(jsonMsg);
         }
     }
-}
-
-void webSocket::broadcastTradeUpdate(const string &jsonMsg, const string &symbol) {
-    auto it = symbolTradeLogs.find(symbol);
-    if (it != symbolTradeLogs.end()) {
+    auto it = symbolMarketClients.find(symbol);
+    if(it != symbolMarketClients.end()){
         for (auto &client : it->second) {
             if (client && client->connected()) {
                 client->send(jsonMsg);
             }
         }
     }
+}
+
+void webSocket::broadcastTradeUpdate(const string &jsonMsg, const string &symbol) {
+
+    for (auto &client : tradeLogs) {
+        if (client && client->connected()) {
+            client->send(jsonMsg);
+        }
+    }
+    auto it = symbolTradeLogs.find(symbol);
+    if(it != symbolTradeLogs.end()){
+        for (auto &client : it->second) {
+            if (client && client->connected()) {
+                client->send(jsonMsg);
+            }
+        }
+    }
+
 }

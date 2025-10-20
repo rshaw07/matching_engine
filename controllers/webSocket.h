@@ -9,6 +9,7 @@ using namespace std;
 class webSocket : public drogon::WebSocketController<webSocket> {
 public:
     static inline unordered_set<WebSocketConnectionPtr> marketClients;
+    static inline unordered_map<string, unordered_set<WebSocketConnectionPtr>> symbolMarketClients;
     static inline unordered_set<WebSocketConnectionPtr> tradeLogs;
     static inline unordered_map<string, unordered_set<WebSocketConnectionPtr>> symbolTradeLogs;
 
@@ -21,11 +22,11 @@ public:
                         std::string &&message,
                        const WebSocketMessageType &type) override;
 
-    static void broadcastMarketUpdate(const string &jsonMsg);
-    static void broadcastTradeUpdate(const string &jsonMsg, const string &symbol = "");
+    static void broadcastMarketUpdate(const string &jsonMsg, const string &symbol);
+    static void broadcastTradeUpdate(const string &jsonMsg, const string &symbol);
 
     WS_PATH_LIST_BEGIN
-    WS_PATH_ADD("/ws/marketfeed");
+    WS_PATH_ADD("/ws/marketfeed"); // marketfeed?symbol=BTCUSDT
     WS_PATH_ADD("/ws/tradefeed"); // tradefeed?symbol=BTCUSDT
     WS_PATH_LIST_END
 };

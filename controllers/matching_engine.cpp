@@ -12,31 +12,58 @@
 // Add definition of your processing function here
 void matching_engine::recordTrades(const Order &buyOrder, const Order &sellOrder, double tradeQuantity, double tradePrice, string aggressorSide){
     cout<<"recordTrades called."<<endl;
-    Trade newTrade;
-    newTrade.tradeId = to_string(rand());
-    newTrade.makerOrderId = (aggressorSide == "buy") ? sellOrder.orderId : buyOrder.orderId;
-    newTrade.takerOrderId = (aggressorSide == "buy") ? buyOrder.orderId : sellOrder.orderId;
-    newTrade.aggressor = aggressorSide;
-    newTrade.symbol = buyOrder.symbol;
-    newTrade.price = to_string(tradePrice);
-    newTrade.quantity = to_string(tradeQuantity);
-    newTrade.timestamp = to_string(time(nullptr));
-    // Store or process the trade as needed
-    tradeHistory[buyOrder.symbol].push_back(newTrade);
     // Broadcast trade update via WebSocket
     Json::Value tradeJson;
-    tradeJson["trade_id"] = newTrade.tradeId;
-    tradeJson["maker_order_id"] = newTrade.makerOrderId;
-    tradeJson["taker_order_id"] = newTrade.takerOrderId;
-    tradeJson["aggressor"] = newTrade.aggressor;
-    tradeJson["symbol"] = newTrade.symbol;
-    tradeJson["price"] = newTrade.price;
-    tradeJson["quantity"] = newTrade.quantity;
-    tradeJson["timestamp"] = newTrade.timestamp;
+    tradeJson["trade_id"] = to_string(rand());
+    tradeJson["maker_order_id"] = (aggressorSide == "buy") ? sellOrder.orderId : buyOrder.orderId;
+    tradeJson["taker_order_id"] = (aggressorSide == "buy") ? buyOrder.orderId : sellOrder.orderId;
+    tradeJson["aggressor"] = aggressorSide;
+    tradeJson["symbol"] = buyOrder.symbol;
+    tradeJson["price"] = to_string(tradePrice);
+    tradeJson["quantity"] = to_string(tradeQuantity);
+    tradeJson["timestamp"] = to_string(time(nullptr));
     Json::StreamWriterBuilder writer;
     string jsonString = Json::writeString(writer, tradeJson);
     webSocket::broadcastTradeUpdate(jsonString, buyOrder.symbol);
 
+}
+
+void matching_engine::updateRecords(shared_ptr<OrderBook> currentBook, const string& symbol){
+    // Broadcast market update via WebSocket
+    Json::Value marketJson;
+    marketJson["timestamp"] = to_string(time(nullptr));
+    marketJson["symbol"] = symbol;
+    if(!currentBook->bids.empty()){
+        marketJson["best_bid"] = currentBook->bids.begin()->first;
+    }
+    else{
+        marketJson["best_bid"] = "None";
+    }
+    if(!currentBook->asks.empty()){
+        marketJson["best_ask"] = currentBook->asks.begin()->first;
+    }
+    else{
+        marketJson["best_ask"] = "None";
+    }
+    Json::Value bidsArray(Json::arrayValue);
+    for(const auto& [price, level] : currentBook->bids){
+        Json::Value levelJson;
+        levelJson["price"] = price;
+        levelJson["total_quantity"] = level.totalQuantity;
+        bidsArray.append(levelJson);
+    }
+    Json::Value asksArray(Json::arrayValue);
+    for(const auto& [price, level] : currentBook->asks){
+        Json::Value levelJson;
+        levelJson["price"] = price;
+        levelJson["total_quantity"] = level.totalQuantity;
+        asksArray.append(levelJson);
+    }
+    marketJson["bids"] = bidsArray;
+    marketJson["asks"] = asksArray;
+    Json::StreamWriterBuilder writer;
+    string jsonString = Json::writeString(writer, marketJson);
+    webSocket::broadcastMarketUpdate(jsonString, symbol);
 }
 
 void matching_engine::submitOrder(Order parsedOrder){
@@ -351,6 +378,7 @@ void matching_engine::submitOrder(Order parsedOrder){
             }
         }
     }
+    updateRecords(currentBook, parsedOrder.symbol);
 
 }
 
@@ -388,72 +416,5 @@ void matching_engine::order(const HttpRequestPtr &req,
     resp["quantity"] = parsedOrder.quantity;
     resp["price"] = parsedOrder.price;
     auto httpResp = HttpResponse::newHttpJsonResponse(resp);
-    callback(httpResp);
-}
-
-
-void matching_engine::tradeBook(const drogon::HttpRequestPtr &req,
-                                std::function<void (const drogon::HttpResponsePtr &)> &&callback,
-                                const std::string &symbol)
-{
-    
-    Json::Value jsonArray(Json::arrayValue);
-    for(const auto& trade : tradeHistory[symbol]) {
-        Json::Value tradeJson;
-        tradeJson["trade_id"] = trade.tradeId;
-        tradeJson["maker_order_id"] = trade.makerOrderId;
-        tradeJson["taker_order_id"] = trade.takerOrderId;
-        tradeJson["aggressor"] = trade.aggressor;
-        tradeJson["symbol"] = trade.symbol;
-        tradeJson["price"] = trade.price;
-        tradeJson["quantity"] = trade.quantity;
-        tradeJson["timestamp"] = trade.timestamp;
-        jsonArray.append(tradeJson);
-    }
-    auto resp = drogon::HttpResponse::newHttpJsonResponse(jsonArray);
-    callback(resp);
-}
-
-void matching_engine::orderDepth(const drogon::HttpRequestPtr &req,
-                                std::function<void (const drogon::HttpResponsePtr &)> &&callback,
-                                const std::string &symbol)
-{
-    Json::Value resp;
-    if(pendingOrders.find(symbol) == pendingOrders.end()){
-        resp["bids"] = Json::Value(Json::arrayValue);
-        resp["asks"] = Json::Value(Json::arrayValue);
-        auto httpResp = drogon::HttpResponse::newHttpJsonResponse(resp);
-        callback(httpResp);
-        return;
-    }
-    auto currentBook = pendingOrders[symbol];
-    lock_guard<mutex> lock(currentBook->bookMutex);
-    Json::Value bidsArray(Json::arrayValue);
-    for(const auto& [price, level] : currentBook->bids){
-        Json::Value levelJson;
-        levelJson["price"] = price;
-        levelJson["total_quantity"] = level.totalQuantity;
-        bidsArray.append(levelJson);
-    }
-    Json::Value asksArray(Json::arrayValue);
-    for(const auto& [price, level] : currentBook->asks){
-        Json::Value levelJson;
-        levelJson["price"] = price;
-        levelJson["total_quantity"] = level.totalQuantity;
-        asksArray.append(levelJson);
-    }
-    string bestBid = "None";
-    string bestAsk = "None";
-    if(!currentBook->bids.empty()){
-        bestBid = to_string(currentBook->bids.begin()->first);
-    }
-    if(!currentBook->asks.empty()){
-        bestAsk = to_string(currentBook->asks.begin()->first);
-    }
-    resp["Best Bid"] = bestBid;
-    resp["Best Offer"] = bestAsk;
-    resp["bids"] = bidsArray;
-    resp["asks"] = asksArray;
-    auto httpResp = drogon::HttpResponse::newHttpJsonResponse(resp);
     callback(httpResp);
 }
