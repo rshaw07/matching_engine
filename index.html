@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Trading Dashboard</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        background: #f4f4f4;
+        margin: 0;
+        padding: 0;
+      }
+      .container {
+        display: flex;
+        gap: 20px;
+        padding: 20px;
+        box-sizing: border-box;
+        height: 100vh;
+      }
+      .feeds {
+        display: flex;
+        gap: 12px;
+        flex: 1;
+        overflow-y: auto;
+        max-height: 100%; 
+      }
+
+      .panel {
+        flex: 1;
+        background: #fff;
+        border-radius: 10px;
+        padding: 16px;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+        display: flex;
+        flex-direction: column;
+        min-width: 300px;
+        overflow: hidden;
+      }
+      h2 {
+        margin: 0 0 10px 0;
+        font-size: 18px;
+      }
+      form {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      input,
+      select,
+      button {
+        padding: 8px;
+        border-radius: 6px;
+        border: 1px solid #ccc;
+        font-size: 14px;
+      }
+      button {
+        background: #007bff;
+        color: #fff;
+        border: none;
+        cursor: pointer;
+      }
+      button:hover {
+        background: #005bb5;
+      }
+      .status {
+        font-size: 13px;
+        margin: 8px 0;
+      }
+      .connected {
+        color: green;
+      }
+      .disconnected {
+        color: red;
+      }
+      .feed-box {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+      }
+      .subscribe {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 8px;
+      }
+      pre {
+        background: #0b0b0b;
+        color: #0f0;
+        padding: 10px;
+        border-radius: 6px;
+        margin: 0;
+        font-size: 12px;
+        overflow: auto;
+        flex: 1;
+      }
+      .small {
+        font-size: 12px;
+        color: #666;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <!-- Order Panel -->
+      <div class="panel">
+        <h2>Place Order</h2>
+        <form id="orderForm">
+          <label class="small">Symbol</label>
+          <input
+            id="symbol"
+            placeholder="e.g. BTC-USDT"
+            value="BTC-USDT"
+            required
+          />
+
+          <label class="small">Side</label>
+          <select id="side">
+            <option value="buy">buy</option>
+            <option value="sell">sell</option>
+          </select>
+
+          <label class="small">Order Type</label>
+          <select id="orderType">
+            <option value="limit">limit</option>
+            <option value="market">market</option>
+            <option value="IOC">ioc</option>
+            <option value="FOK">fok</option>
+          </select>
+
+          <label class="small"
+            >Price</label
+          >
+          <input
+            id="price"
+            placeholder="Price (leave blank for market)"
+          />
+
+          <label class="small">Quantity</label>
+          <input
+            id="quantity"
+            placeholder="Quantity"
+            required
+          />
+
+          <button type="submit">Submit Order</button>
+        </form>
+
+        <div style="margin-top: 12px">
+          <div class="small">API endpoint used:</div>
+          <div class="small" style="color: #333">
+            POST http://localhost:5555/matching_engine/order
+          </div>
+        </div>
+
+        <h3 style="margin-top: 12px">Response</h3>
+        <pre id="orderResponse">No responses yet</pre>
+      </div>
+
+      <!-- Market Feed Panel -->
+      <div class="panel">
+        <h2>Market Feed</h2>
+        <div class="subscribe">
+          <input id="marketSymbol" placeholder="Symbol (optional)" />
+          <button onclick="subscribeMarket()">Subscribe</button>
+          <button onclick="unsubscribeMarket()" style="background: #666">
+            Unsubscribe
+          </button>
+        </div>
+        <div id="marketStatus" class="status disconnected">❌ Disconnected</div>
+        <div class="feeds" style="flex-direction: column; gap: 8px">
+          <div class="feed-box" style="flex: 1">
+            <pre id="marketFeed">No data</pre>
+          </div>
+        </div>
+      </div>
+
+      <!-- Trade Feed Panel -->
+      <div class="panel">
+        <h2>Trade Feed</h2>
+        <div class="subscribe">
+          <input id="tradeSymbol" placeholder="Symbol (optional)" />
+          <button onclick="subscribeTrade()">Subscribe</button>
+          <button onclick="unsubscribeTrade()" style="background: #666">
+            Unsubscribe
+          </button>
+        </div>
+        <div id="tradeStatus" class="status disconnected">❌ Disconnected</div>
+        <div class="feeds" style="flex-direction: column; gap: 8px">
+          <div class="feed-box" style="flex: 1">
+            <pre id="tradeFeed">No data</pre>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      // Configuration
+      const API_BASE = "http://localhost:5555";
+      const ORDER_ENDPOINT = API_BASE + "/matching_engine/order";
+      const WS_BASE = "ws://localhost:5555/ws";
+
+      // --- Order submission ---
+      document
+        .getElementById("orderForm")
+        .addEventListener("submit", async (e) => {
+          e.preventDefault();
+          const symbol = document.getElementById("symbol").value.trim();
+          const side = document.getElementById("side").value;
+          const order_type = document.getElementById("orderType").value;
+          const priceRaw = document.getElementById("price").value;
+          const quantity = document.getElementById("quantity").value;
+
+          if (!symbol || !quantity) {
+            alert("Symbol and quantity are required");
+            return;
+          }
+
+          const body = {
+            symbol,
+            side,
+            order_type,
+            quantity: Number(quantity),
+          };
+
+          
+          if (priceRaw !== "" && priceRaw !== null) {
+            body.price = Number(priceRaw);
+          }
+
+          try {
+            const res = await fetch(ORDER_ENDPOINT, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(body),
+            });
+            const data = await res.json();
+            document.getElementById("orderResponse").textContent =
+              JSON.stringify(data, null, 2);
+          } catch (err) {
+            document.getElementById("orderResponse").textContent =
+              "Error: " + err.message;
+          }
+        });
+
+      // --- Market WebSocket ---
+      let marketSocket = null;
+      function subscribeMarket() {
+        const sym = document.getElementById("marketSymbol").value.trim();
+        const url = sym
+          ? `${WS_BASE}/marketfeed?symbol=${encodeURIComponent(sym)}`
+          : `${WS_BASE}/marketfeed`;
+        // console.log(url);
+        if (marketSocket) marketSocket.close();
+        marketSocket = new WebSocket(url);
+
+        const statusEl = document.getElementById("marketStatus");
+        const feedEl = document.getElementById("marketFeed");
+        feedEl.textContent = "";
+
+        marketSocket.onopen = () => {
+          statusEl.textContent = `✅ Connected to ${url}`;
+          statusEl.className = "status connected";
+        };
+        marketSocket.onclose = () => {
+          statusEl.textContent = "❌ Disconnected";
+          statusEl.className = "status disconnected";
+        };
+        marketSocket.onerror = (ev) => {
+          statusEl.textContent = "❌ Error";
+          statusEl.className = "status disconnected";
+        };
+        let marketDataMap = {}; 
+
+        marketSocket.onmessage = (msg) => {
+          try {
+            const obj = JSON.parse(msg.data);
+            if (!obj || !obj.symbol) return;
+
+            const sym = obj.symbol;
+            const ts = obj.timestamp || "";
+            const bids = obj.bids || [];
+            const asks = obj.asks || [];
+            const bestBid = obj.best_bid;
+            const bestAsk = obj.best_ask;
+
+            let out = `Time: ${ts}\nSymbol: ${sym}\n\nBest Bid: ${bestBid}\nBest Ask: ${bestAsk}\n\nBids:\n`;
+            if (bids.length === 0) out += `  (no bids)\n`;
+            for (let i = 0; i < Math.min(10, bids.length); i++) {
+              out += `  ${bids[i].price} | ${bids[i].total_quantity}\n`;
+            }
+
+            out += `\nAsks:\n`;
+            if (asks.length === 0) out += `  (no asks)\n`;
+            for (let i = 0; i < Math.min(10, asks.length); i++) {
+              out += `  ${asks[i].price} | ${asks[i].total_quantity}\n`;
+            }
+
+            marketDataMap[sym] = out;
+
+            const combined = Object.values(marketDataMap).join(
+              "\n" + "-".repeat(40) + "\n\n"
+            );
+
+            document.getElementById("marketFeed").textContent = combined;
+          } catch (e) {
+            document.getElementById("marketFeed").textContent =
+              msg.data +
+              "\n\n" +
+              document.getElementById("marketFeed").textContent;
+          }
+        };
+      }
+      function unsubscribeMarket() {
+        if (marketSocket) marketSocket.close();
+        marketSocket = null;
+        document.getElementById("marketStatus").textContent = "❌ Disconnected";
+        document.getElementById("marketStatus").className =
+          "status disconnected";
+        document.getElementById("marketFeed").textContent = "No data";
+      }
+
+      // --- Trade WebSocket ---
+      let tradeSocket = null;
+      function subscribeTrade() {
+        const sym = document.getElementById("tradeSymbol").value.trim();
+        const url = sym
+          ? `${WS_BASE}/tradefeed?symbol=${encodeURIComponent(sym)}`
+          : `${WS_BASE}/tradefeed`;
+        if (tradeSocket) tradeSocket.close();
+        tradeSocket = new WebSocket(url);
+
+        const statusEl = document.getElementById("tradeStatus");
+        const feedEl = document.getElementById("tradeFeed");
+        feedEl.textContent = "";
+
+        tradeSocket.onopen = () => {
+          statusEl.textContent = `✅ Connected to ${url}`;
+          statusEl.className = "status connected";
+        };
+        tradeSocket.onclose = () => {
+          statusEl.textContent = "❌ Disconnected";
+          statusEl.className = "status disconnected";
+        };
+        tradeSocket.onerror = () => {
+          statusEl.textContent = "❌ Error";
+          statusEl.className = "status disconnected";
+        };
+        tradeSocket.onmessage = (msg) => {
+          try {
+            const obj = JSON.parse(msg.data);
+            const ts = obj.timestamp || "";
+            const sym = obj.symbol || "";
+            let out = `Time: ${ts}\nSymbol: ${sym}\nTrade ID: ${
+              obj.trade_id || obj.tradeId || ""
+            }\nPrice: ${obj.price}\nQty: ${obj.quantity}\nAggressor: ${
+              obj.aggressor_side || obj.aggressor
+            }\nMaker ID: ${obj.maker_order_id}\nTaker ID: ${
+              obj.taker_order_id
+            }\nMaker Fee: ${obj.maker_fee}\nTaker Fee: ${obj.taker_fee}\n\n`;
+            feedEl.textContent = out + feedEl.textContent;
+          } catch (e) {
+            feedEl.textContent = msg.data + "\n\n" + feedEl.textContent;
+          }
+        };
+      }
+      function unsubscribeTrade() {
+        if (tradeSocket) tradeSocket.close();
+        tradeSocket = null;
+        document.getElementById("tradeStatus").textContent = "❌ Disconnected";
+        document.getElementById("tradeStatus").className =
+          "status disconnected";
+        document.getElementById("tradeFeed").textContent = "No data";
+      }
+
+      window.addEventListener("beforeunload", () => {
+        if (marketSocket) marketSocket.close();
+        if (tradeSocket) tradeSocket.close();
+      });
+    </script>
+  </body>
+</html>
