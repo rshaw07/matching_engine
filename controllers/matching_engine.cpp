@@ -24,11 +24,15 @@ string getTime(){
 atomic<uint64_t> matching_engine::orderCounter{0};
 atomic<uint64_t> matching_engine::tradeCounter{0};
 
+double makerFeeRate = 0.002; // 0.2%
+double takerFeeRate = 0.0035; // 0.35%
 
 
 // Add definition of your processing function here
 void matching_engine::recordTrades(const Order &buyOrder, const Order &sellOrder, double tradeQuantity, double tradePrice, string aggressorSide){
     cout<<"recordTrades called."<<endl;
+    double makerFee = tradeQuantity * tradePrice * makerFeeRate;
+    double takerFee = tradeQuantity * tradePrice * takerFeeRate;
     // Broadcast trade update via WebSocket
     Json::Value tradeJson;
     tradeJson["trade_id"] = getNextTradeId();
@@ -38,6 +42,8 @@ void matching_engine::recordTrades(const Order &buyOrder, const Order &sellOrder
     tradeJson["symbol"] = buyOrder.symbol;
     tradeJson["price"] = tradePrice;
     tradeJson["quantity"] = tradeQuantity;
+    tradeJson["maker_fee"] = makerFee;
+    tradeJson["taker_fee"] = takerFee;
     tradeJson["timestamp"] = getTime();
     Json::StreamWriterBuilder writer;
     string jsonString = Json::writeString(writer, tradeJson);
@@ -96,7 +102,7 @@ OrderResult matching_engine::submitOrder(Order parsedOrder){
     result.status = "open";
 
     double totalTradedValue = 0.0;
-
+    lock_guard<mutex> engineLock(engineMutex);
     if(pendingOrders.find(parsedOrder.symbol) == pendingOrders.end()){
         pendingOrders[parsedOrder.symbol] = make_shared<OrderBook>();
     }
@@ -139,13 +145,13 @@ OrderResult matching_engine::submitOrder(Order parsedOrder){
                         ++it;
                     }
                 }
+                result.executedQuantity = parsedOrder.quantity - quantity;
+                result.remainingQuantity = quantity;
                 if(quantity > 0){
                     parsedOrder.quantity = quantity;
                     currentBook->bids[price].orders.push_back(make_shared<Order>(parsedOrder));
                     currentBook->bids[price].totalQuantity += quantity;
                 }
-                result.executedQuantity = parsedOrder.quantity - quantity;
-                result.remainingQuantity = quantity;
             }
         }
         else{
@@ -182,13 +188,13 @@ OrderResult matching_engine::submitOrder(Order parsedOrder){
                         ++it;
                     }
                 }
+                result.executedQuantity = parsedOrder.quantity - quantity;
+                result.remainingQuantity = quantity;
                 if(quantity > 0){
                     parsedOrder.quantity = quantity;
                     currentBook->asks[price].orders.push_back(make_shared<Order>(parsedOrder));
                     currentBook->asks[price].totalQuantity += quantity;
                 }   
-                result.executedQuantity = parsedOrder.quantity - quantity;
-                result.remainingQuantity = quantity;
             }
         }
     }
@@ -351,6 +357,7 @@ OrderResult matching_engine::submitOrder(Order parsedOrder){
                 ++it;
             }
             if(canFill){
+                it = currentBook->asks.begin();
                 while(it != currentBook->asks.end() && quantity > 0){
                     auto &level = it->second;
                     while(!level.orders.empty() && quantity > 0){
@@ -397,6 +404,7 @@ OrderResult matching_engine::submitOrder(Order parsedOrder){
                 ++it;
             }
             if(canFill){
+                it = currentBook->bids.begin();
                 while(it != currentBook->bids.end() && quantity > 0){
                     auto &level = it->second;
                     while(!level.orders.empty() && quantity > 0){

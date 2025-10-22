@@ -35,7 +35,6 @@ struct PriceLevel{
 struct OrderBook{
   map<double, PriceLevel, greater<double>> bids;
   map<double, PriceLevel> asks;
-  unordered_map<string, shared_ptr<Order>> ordersById;
   mutex bookMutex;
 };
 
