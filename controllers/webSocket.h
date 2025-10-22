@@ -13,6 +13,7 @@ public:
     static inline unordered_set<WebSocketConnectionPtr> tradeLogs;
     static inline unordered_map<string, unordered_set<WebSocketConnectionPtr>> symbolTradeLogs;
 
+    void sendFullMarketSnapshot(const WebSocketConnectionPtr &conn, const string &symbol);
     void handleNewConnection(const HttpRequestPtr &req,
                              const WebSocketConnectionPtr &conn) override;
 

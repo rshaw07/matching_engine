@@ -2,27 +2,28 @@
 
 #include <drogon/HttpController.h>
 #include <iostream>
+#include <atomic>
 using namespace drogon;
 using namespace std;
 
 struct Order {
-  string orderId;
+  uint64_t orderId;
   string symbol; // BTCUSD, ETHUSD, etc.
-  string price;
-  string quantity;
+  double price;
+  double quantity;
   string side; // "buy" or "sell"
   string orderType; // "limit" or "market"
   string timestamp;
 };
 
 struct Trade {
-  string tradeId;
-  string makerOrderId;
-  string takerOrderId;
+  uint64_t tradeId;
+  uint64_t makerOrderId;
+  uint64_t takerOrderId;
   string aggressor;
   string symbol;
-  string price;
-  string quantity;
+  double price;
+  double quantity;
   string timestamp;
 };
 
@@ -37,23 +38,46 @@ struct OrderBook{
   unordered_map<string, shared_ptr<Order>> ordersById;
   mutex bookMutex;
 };
+
+struct OrderResult{
+    uint64_t orderId;
+    string status;
+    double executedQuantity;
+    double remainingQuantity;
+    double averagePrice;
+};
+
+string getTime();
 class matching_engine : public drogon::HttpController<matching_engine>
 {
   public:
-    void recordTrades(const Order &buyOrder, const Order &sellOrder, double tradeQuantity, double tradePrice, string aggressorSide);
-    void submitOrder(Order parsedOrder);
-    void updateRecords(shared_ptr<OrderBook> currentBook, const string& symbol);
+  static atomic<uint64_t> orderCounter;
+  static atomic<uint64_t> tradeCounter;
+  void recordTrades(const Order &buyOrder, const Order &sellOrder, double tradeQuantity, double tradePrice, string aggressorSide);
+  OrderResult submitOrder(Order parsedOrder);
+  void updateRecords(shared_ptr<OrderBook> currentBook, const string& symbol);
+  
+  METHOD_LIST_BEGIN
+  METHOD_ADD(matching_engine::order, "/order", Post);
+  
+  METHOD_LIST_END
+  void order(const HttpRequestPtr& req, std::function<void (const HttpResponsePtr &)> &&callback);
+  static const auto& getPendingOrders() {
+    return pendingOrders;
+  }
 
-    METHOD_LIST_BEGIN
-    METHOD_ADD(matching_engine::order, "/order", Post);
+  static uint64_t getNextOrderId(){
+    return ++orderCounter;
+  }
 
-    METHOD_LIST_END
-    void order(const HttpRequestPtr& req, std::function<void (const HttpResponsePtr &)> &&callback);
+  static uint64_t getNextTradeId(){
+    return ++tradeCounter;
+  }
 
   private:
 
 
 
-  unordered_map<string, shared_ptr<OrderBook>> pendingOrders;
+  static inline unordered_map<string, shared_ptr<OrderBook>> pendingOrders;
   mutex engineMutex;
 };
