@@ -28,12 +28,11 @@ double makerFeeRate = 0.002; // 0.2%
 double takerFeeRate = 0.0035; // 0.35%
 
 
-// Add definition of your processing function here
 void matching_engine::recordTrades(const Order &buyOrder, const Order &sellOrder, double tradeQuantity, double tradePrice, string aggressorSide){
     cout<<"recordTrades called."<<endl;
     double makerFee = tradeQuantity * tradePrice * makerFeeRate;
     double takerFee = tradeQuantity * tradePrice * takerFeeRate;
-    // Broadcast trade update via WebSocket
+
     Json::Value tradeJson;
     tradeJson["trade_id"] = getNextTradeId();
     tradeJson["maker_order_id"] = (aggressorSide == "buy") ? sellOrder.orderId : buyOrder.orderId;
@@ -52,7 +51,6 @@ void matching_engine::recordTrades(const Order &buyOrder, const Order &sellOrder
 }
 
 void matching_engine::updateRecords(shared_ptr<OrderBook> currentBook, const string& symbol){
-    // Broadcast market update via WebSocket
     Json::Value marketJson;
     marketJson["timestamp"] = getTime();
     marketJson["symbol"] = symbol;
@@ -265,7 +263,7 @@ OrderResult matching_engine::submitOrder(Order parsedOrder){
                 }
             }
             if(quantity > 0){
-                // cancel remaining quantity or handle as per your logic
+                // cancel remaining quantity
             }
             result.executedQuantity = parsedOrder.quantity - quantity;
             result.remainingQuantity = quantity;
